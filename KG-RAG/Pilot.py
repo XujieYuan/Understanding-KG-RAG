@@ -14,7 +14,6 @@ from langchain.schema import (
 )
 import numpy as np
 import re
-import string
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 import pandas as pd
@@ -22,9 +21,11 @@ from typing import List, Tuple
 import pickle
 import json
 import csv
-import os
 from transformers import BertTokenizer, BertModel
 import torch
+from sentence_transformers import SentenceTransformer
+
+sentence_model = SentenceTransformer('distiluse-base-multilingual-cased-v1')
 
 
 def cosine_similarity_manual(x, y):
@@ -34,13 +35,59 @@ def cosine_similarity_manual(x, y):
     sim = dot_product / (norm_x[:, np.newaxis] * norm_y)
     return sim
 
-
 def encode_text(text):
     tokens = bert_tokenizer(text, padding=True, truncation=True, return_tensors="pt")
     with torch.no_grad():
         outputs = bert_model(**tokens)
     embeddings = outputs.last_hidden_state.mean(dim=1).squeeze()
     return embeddings
+
+def encode_text_sentence_transformer(text):
+    if isinstance(text, list):
+        return sentence_model.encode(text, normalize_embeddings=True)
+    else:
+        return sentence_model.encode([text], normalize_embeddings=True)[0]
+
+def extract_keywords(input_question, max_retries=3):
+    try:
+        messages = [
+            SystemMessage(content="You are a medical keyword extraction specialist. Your task is to extract important keywords from medical questions."),
+            HumanMessage(content=f"Please extract important keywords from the following medical question, separated by commas. Return only the keyword list without any explanation:\n\n{input_question}")
+        ]
+        result = chat(messages)
+        keywords = result.content.strip().split(',')
+        print(f"Extracted keywords: {keywords}")
+        return [kw.strip() for kw in keywords]
+    except Exception as e:
+        words = re.findall(r'\b\w+\b', input_question.lower())
+        return list(set(words))[:5]     
+
+def match_entities(input_question, entity_embeddings):
+    keywords = extract_keywords(input_question)
+    
+    match_kg = []
+    
+    for keyword in keywords:
+        keyword_embedding = encode_text_sentence_transformer(keyword)
+
+        similarities = []
+        for i, entity_embedding in enumerate(entity_embeddings["embeddings"]):
+            similarity = np.dot(keyword_embedding, entity_embedding) / (
+                np.linalg.norm(keyword_embedding) * np.linalg.norm(entity_embedding)
+            )
+            similarities.append((similarity, i))
+        
+        similarities.sort(reverse=True)
+        
+        for similarity, idx in similarities[:5]:  
+            entity = entity_embeddings["entities"][idx]
+            entity_formatted = entity.replace(" ", "_")
+            
+            if entity_formatted not in match_kg and similarity > 0.6:  
+                match_kg.append(entity_formatted)
+                break
+    
+    return match_kg
 
 
 def preprocess_output(output):
@@ -71,8 +118,7 @@ def extract_topics(input_question, match_kg):
         output_all = result.content
         output_all = preprocess_output(output_all)
         print("llm topics:", output_all)
-        
-        # pattern = r"[Tt]he main topic is '(.*?)'"
+
         pattern = r"[Tt]he main topic (?:is|can be summarized as) '(.*?)'"
         match = re.search(pattern, output_all, re.IGNORECASE)
         if match:
@@ -269,7 +315,6 @@ def path_search(input_question, match_kg, topic, max_depth=3, similarity_thresho
     path = []  
     priority_queue = []
 
-    # 初始化优先队列
     for entity in match_kg:
         score = calculate_score(entity, input_question, topic)
         heapq.heappush(priority_queue, (-score, entity, 0, None))  
@@ -277,11 +322,9 @@ def path_search(input_question, match_kg, topic, max_depth=3, similarity_thresho
     while priority_queue:
         current_score, current_node, current_depth, relationship = heapq.heappop(priority_queue)
 
-        # 跳过已访问节点
         if current_node in visited:
             continue
             
-        # 达到最大深度时停止
         if current_depth >= max_depth:
             break
 
@@ -294,7 +337,6 @@ def path_search(input_question, match_kg, topic, max_depth=3, similarity_thresho
             
         print(f"visited: {visited}, current_node: {current_node}, current_score: {current_score}, current_depth: {current_depth}")
 
-        # 获取邻居节点
         try:
             neighbors = get_entity_neighbors_ours(current_node)
         except ServiceUnavailable:
@@ -365,20 +407,16 @@ def prompt_knowledge(knowledge):
     chat_prompt_with_values = chat_prompt.format_prompt(knowledge=knowledge,\
                                                         text={})
     
-    max_attempts = 3  # Define the maximum number of attempts
+    max_attempts = 3  
     for attempt in range(max_attempts):
         try:
             response_of_KG = chat(chat_prompt_with_values.to_messages()).content
-            # print(f"response_of_KG: {response_of_KG}")
-            # Use one pattern to match all evidences
             pattern = r'Evidence \d+:.*?(?=Evidence \d+:|$)'
             evidences = re.findall(pattern, response_of_KG, re.DOTALL)
 
-            # Use another pattern to remove "I hope this helps" and anything after it
             pattern_remove = r'I hope.*'
             evidences = [re.sub(pattern_remove, '', evidence, flags=re.DOTALL) for evidence in evidences]
 
-            # If no evidences were found, raise an exception
             if not evidences:
                 raise ValueError("No evidence found in response")
             break
@@ -512,7 +550,6 @@ def final_answer_cot(str, subgraph):
         )
 ]
         
-    # Add a try/except block to handle the exception
     attempt_count = 0
     max_attempts = 3  
     while attempt_count < max_attempts:
@@ -692,7 +729,7 @@ def generate_output_all_mindmap(input_text, natural_language):
 def extract_output_summary(output, pattern):
     if not isinstance(output, str):
         try:
-            output = ' '.join(map(str, output))  # 尝试将 output 转换为字符串
+            output = ' '.join(map(str, output))  
         except Exception as e:
             return f"Error: Failed to convert output to string. Original error: {e}"
     extracted_output = re.findall(pattern, output, flags=re.DOTALL)
@@ -718,9 +755,6 @@ if __name__ == "__main__":
     # # 2. OpenAI API based chat
     chat = ChatOpenAI(openai_api_key="EMPTY", openai_api_base="http://localhost:8000/v1")
 
-    re1 = r'The extracted entities are (.*?)<END>'
-    re2 = r"The extracted entity is (.*?)<END>"
-    re3 = r"<CLS>(.*?)<SEP>"
 
     with open('./output/GenMedGPT-5K/output_pilot.csv', 'w', newline='') as f4:
         writer = csv.writer(f4)
@@ -744,70 +778,18 @@ if __name__ == "__main__":
     with open('./data/GenMedGPT-5K/entity_embeddings.pkl', 'rb') as f1:
         entity_embeddings = pickle.load(f1)
 
-    with open('./data/GenMedGPT-5K/keyword_embeddings.pkl', 'rb') as f2:
-        keyword_embeddings = pickle.load(f2)
-
-    with open("./data/GenMedGPT-5K/NER_chatgpt.json", "r") as f:
+    with open("./data/GenMedGPT-5K/genmedgpt-5k.json", "r") as f:
         for line in f.readlines()[:]:
             x = json.loads(line)
-            input = x["qustion_output"]
-            input = input.replace("\n", "")
-            input = input.replace("<OOS>", "<EOS>")
-            input = input.replace(":", "") + "<END>"
-            input_text = re.findall(re3, input)
-
+            input_text = x["question"]           
             if input_text == []:
                 continue
-            print('Question:\n', input_text[0])
+            print('Question:',input_text[0])
 
-            output = x["answer_output"]
-            output = output.replace("\n", "")
-            output = output.replace("<OOS>", "<EOS>")
-            output = output.replace(":", "") + "<END>"
-            output_text = re.findall(re3, output)
-            # print(output_text)
+            output_text = x["answer"]
+            print('Answer:',output_text)
 
-            question_kg = re.findall(re1, input)
-            if len(question_kg) == 0:
-                question_kg = re.findall(re2, input)
-                if len(question_kg) == 0:
-                    print("<Warning> no entities found", input)
-                    continue
-            question_kg = question_kg[0].replace("<END>", "").replace("<EOS>", "")
-            question_kg = question_kg.replace("\n", "")
-            question_kg = question_kg.split(", ")
-            # print("question_kg",question_kg)
-
-            answer_kg = re.findall(re1, output)
-            if len(answer_kg) == 0:
-                answer_kg = re.findall(re2, output)
-                if len(answer_kg) == 0:
-                    print("<Warning> no entities found", output)
-                    continue
-            answer_kg = answer_kg[0].replace("<END>", "").replace("<EOS>", "")
-            answer_kg = answer_kg.replace("\n", "")
-            answer_kg = answer_kg.split(", ")
-            # print(answer_kg)
-
-            match_kg = []
-            entity_embeddings_emb = pd.DataFrame(entity_embeddings["embeddings"])
-
-            for kg_entity in question_kg:
-
-                keyword_index = keyword_embeddings["keywords"].index(kg_entity)
-                kg_entity_emb = np.array(keyword_embeddings["embeddings"][keyword_index])
-
-                cos_similarities = cosine_similarity_manual(entity_embeddings_emb, kg_entity_emb)[0]
-                max_index = cos_similarities.argmax()
-
-                match_kg_i = entity_embeddings["entities"][max_index]
-                while match_kg_i.replace(" ", "_") in match_kg:
-                    cos_similarities[max_index] = 0
-                    max_index = cos_similarities.argmax()
-                    match_kg_i = entity_embeddings["entities"][max_index]
-
-                match_kg.append(match_kg_i.replace(" ", "_"))
-            print('match_kg',match_kg)
+            match_kg = match_entities(input_text[0], entity_embeddings)
 
             # # # Pre-retrieval
             attempt_count = 0
@@ -874,12 +856,12 @@ if __name__ == "__main__":
             print("Natural language description facts:\n", natural_language_facts)
 
             # 13. Final output and Extract output summary
-            re4 = r"Output 1:(.*?)Output 2:"
+            re = r"Output 1:(.*?)Output 2:"
 
             for _ in range(3):
                 output_all_preAblation = generate_output_all_mindmap(input_text[0], natural_language_subgraph_preAblation)
                 print('\nPreAblation:\n', output_all_preAblation)
-                output1_preAblation = extract_output_summary(output_all_preAblation, re4)
+                output1_preAblation = extract_output_summary(output_all_preAblation, re)
                 if output1_preAblation is not None:
                     print('\nPreAblation-summary:\n', output1_preAblation)
                     break
@@ -891,7 +873,7 @@ if __name__ == "__main__":
                 output_all_subgraph_cot = generate_output_all_cot(input_text[0], natural_language_subgraph)     
                 if output_all_subgraph_cot is not None:  
                     print('\nSubgraph+cot:\n', output_all_subgraph_cot)
-                    output1_subgraph_cot = extract_output_summary(output_all_subgraph_cot, re4)
+                    output1_subgraph_cot = extract_output_summary(output_all_subgraph_cot, re)
                     print('\nSubgraph+cot_summary:\n', output1_subgraph_cot)
                     if output1_subgraph_cot is None:
                         flag_wrong = 1
@@ -904,7 +886,7 @@ if __name__ == "__main__":
                 output_all_subgraph_tot = generate_output_all_tot(input_text[0], natural_language_subgraph)     
                 if output_all_subgraph_tot is not None:  
                     print('\nSubgraph+tot:\n', output_all_subgraph_tot)
-                    output1_subgraph_tot = extract_output_summary(output_all_subgraph_tot, re4)
+                    output1_subgraph_tot = extract_output_summary(output_all_subgraph_tot, re)
                     print('\nSubgraph+tot_summary:\n', output1_subgraph_tot)
                     if output1_subgraph_tot is None:
                         flag_wrong = 1
@@ -917,7 +899,7 @@ if __name__ == "__main__":
                 output_all_subgraph_mindmap = generate_output_all_mindmap(input_text[0], natural_language_subgraph)
                 if output_all_subgraph_mindmap is not None:
                     print('\nSubgraph+mindmap:\n', output_all_subgraph_mindmap)
-                    output1_subgraph_mindmap = extract_output_summary(output_all_subgraph_mindmap, re4)
+                    output1_subgraph_mindmap = extract_output_summary(output_all_subgraph_mindmap, re)
                     print('\nSubgraph+mindmap_summary:\n', output1_subgraph_mindmap)
                     if output1_subgraph_mindmap is None:
                         flag_wrong = 1
@@ -939,7 +921,7 @@ if __name__ == "__main__":
                 output_all_path_cot = generate_output_all_cot(input_text[0], natural_language_path)     
                 if output_all_path_cot is not None:  
                     print('\nPath+cot:\n', output_all_path_cot)
-                    output1_path_cot = extract_output_summary(output_all_path_cot, re4)
+                    output1_path_cot = extract_output_summary(output_all_path_cot, re)
                     print('\nPath+cot_summary:\n', output1_subgraph_cot)
                     if output1_path_cot is None:
                         flag_wrong = 1
@@ -952,7 +934,7 @@ if __name__ == "__main__":
                 output_all_path_tot = generate_output_all_tot(input_text[0], natural_language_path)
                 if output_all_path_tot is not None:
                     print('\nPath+tot:\n', output_all_path_tot)
-                    output1_path_tot = extract_output_summary(output_all_path_tot, re4)
+                    output1_path_tot = extract_output_summary(output_all_path_tot, re)
                     print('\nPath+tot_summary:\n', output1_path_tot)
                     if output1_path_tot is None:
                         flag_wrong = 1
@@ -965,7 +947,7 @@ if __name__ == "__main__":
                 output_all_path_mindmap = generate_output_all_mindmap(input_text[0], natural_language_path)
                 if output_all_path_mindmap is not None:
                     print('\nPath+mindmap:\n', output_all_path_mindmap)
-                    output1_path_mindmap = extract_output_summary(output_all_path_mindmap, re4)
+                    output1_path_mindmap = extract_output_summary(output_all_path_mindmap, re)
                     print('\nPath+mindmap_summary:\n', output1_path_mindmap)
                     if output1_path_mindmap is None:
                         flag_wrong = 1
@@ -987,7 +969,7 @@ if __name__ == "__main__":
                 output_all_fact_cot = generate_output_all_cot(input_text[0], natural_language_facts)
                 if output_all_fact_cot is not None:
                     print('\nFact+cot:\n', output_all_fact_cot)
-                    output1_fact_cot = extract_output_summary(output_all_fact_cot, re4)
+                    output1_fact_cot = extract_output_summary(output_all_fact_cot, re)
                     print('\nFact+cot_summary:\n', output1_fact_cot)
                     if output1_fact_cot is None:
                         flag_wrong = 1
@@ -1000,7 +982,7 @@ if __name__ == "__main__":
                 output_all_fact_tot = generate_output_all_tot(input_text[0], natural_language_facts)
                 if output_all_fact_tot is not None:
                     print('\nFact+tot:\n', output_all_fact_tot)
-                    output1_fact_tot = extract_output_summary(output_all_fact_tot, re4)
+                    output1_fact_tot = extract_output_summary(output_all_fact_tot, re)
                     print('\nFact+tot_summary:\n', output1_fact_tot)
                     if output1_fact_tot is None:
                         flag_wrong = 1
@@ -1013,7 +995,7 @@ if __name__ == "__main__":
                 output_all_fact_mindmap = generate_output_all_mindmap(input_text[0], natural_language_facts)
                 if output_all_fact_mindmap is not None:
                     print('\nFact+mindmap:\n', output_all_fact_mindmap)
-                    output1_fact_mindmap = extract_output_summary(output_all_fact_mindmap, re4)
+                    output1_fact_mindmap = extract_output_summary(output_all_fact_mindmap, re)
                     print('\nFact+mindmap_summary:\n', output1_fact_mindmap)
                     if output1_fact_mindmap is None:
                         flag_wrong = 1

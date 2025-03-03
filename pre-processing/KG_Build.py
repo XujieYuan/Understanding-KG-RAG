@@ -22,7 +22,7 @@ def create_knowledge_graph(uri, user, password, file_path):
     
     driver.close()
 
-# Construct EMCKG Sandbox
+
 if __name__ == "__main__":
     uri = "your_neo4j_uri"
     username = "your_neo4j_username"
