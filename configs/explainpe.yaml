@@ -1,0 +1,21 @@
+dataset: explainpe
+
+neo4j:
+  uri: "bolt://localhost:7687"       # Replace with your Neo4j URI
+  username: "neo4j"
+  password: "your_password_here"
+
+llm:
+  api_base: "http://localhost:8000/v1"   # vLLM or Ollama endpoint
+  api_key: "EMPTY"
+
+bert:
+  model_path: "bert-base-chinese"        # HuggingFace name or local path
+
+embedding:
+  model_path: "distiluse-base-multilingual-cased-v1"  # HuggingFace name or local path
+
+data:
+  input: "data/ExplainCPE/explainpe.json"
+  entity_embeddings: "data/ExplainCPE/entity_embeddings.pkl"
+  output: "output/explainpe/results.csv"

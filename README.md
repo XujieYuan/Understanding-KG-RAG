@@ -1,4 +1,4 @@
 # Understanding-KG-RAG
-![mindmap and pipeline](https://raw.githubusercontent.com/XujieYuan/Understanding-KG-RAG/blob/main/figs/mindmap_and_pipeline.png)
+![mindmap and pipeline](https://raw.githubusercontent.com/XujieYuan/Understanding-KG-RAG/main/figs/mindmap_and_pipeline.png)
 
 The integration of Knowledge Graphs (KGs) into Retrieval-Augmented Generation (RAG) has shown potential in reducing hallucinations and improving accuracy. However, a systematic understanding of KG-RAG methods remains lacking. This work analyzes their effectiveness across diverse application scenarios by evaluating 6 KG-RAG methods on 7 datasets with 9 KG-RAG configurations and 17 LLMs. Our results highlight the importance of selecting the right configurations and application conditions for optimal KG-RAG performance.

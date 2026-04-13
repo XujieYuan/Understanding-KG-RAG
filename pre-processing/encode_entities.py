@@ -1,3 +1,4 @@
+import argparse
 import pickle
 from sentence_transformers import SentenceTransformer
 
@@ -23,7 +24,7 @@ def encode_and_save(items, model, output_file, item_type):
     try:
         embeddings = model.encode(items, batch_size=1024, show_progress_bar=True, normalize_embeddings=True)
         data = {
-            f"{item_type}": items, 
+            f"{item_type}": items,
             "embeddings": embeddings,
         }
         with open(output_file, "wb") as f:
@@ -34,11 +35,16 @@ def encode_and_save(items, model, output_file, item_type):
 
 
 def main():
-    model = SentenceTransformer('../distiluse-base-multilingual-cased-v1')
-    
-    entities = load_entities("./data/commonsenseqa/knowledge_graph.txt")
-    
-    encode_and_save(entities, model, "./data/commonsenseqa/entity_embeddings.pkl", "entities")
+    parser = argparse.ArgumentParser(description="Encode KG entities with SentenceTransformer")
+    parser.add_argument('--kg', required=True, help='Path to knowledge_graph.txt (TSV: head\\trel\\ttail)')
+    parser.add_argument('--output', required=True, help='Output pickle file path')
+    parser.add_argument('--model', default='distiluse-base-multilingual-cased-v1',
+                        help='SentenceTransformer model name or local path')
+    args = parser.parse_args()
+
+    model = SentenceTransformer(args.model)
+    entities = load_entities(args.kg)
+    encode_and_save(entities, model, args.output, "entities")
 
 
 if __name__ == "__main__":

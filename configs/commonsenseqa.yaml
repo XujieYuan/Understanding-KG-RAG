@@ -1,0 +1,21 @@
+dataset: commonsenseqa
+
+neo4j:
+  uri: "bolt://localhost:7687"       # Replace with your Neo4j URI
+  username: "neo4j"
+  password: "your_password_here"
+
+llm:
+  api_base: "http://localhost:8000/v1"   # vLLM or Ollama endpoint
+  api_key: "EMPTY"
+
+bert:
+  model_path: "bert-base-uncased"        # HuggingFace name or local path
+
+embedding:
+  model_path: "distiluse-base-multilingual-cased-v1"  # HuggingFace name or local path
+
+data:
+  input: "data/commonsenseqa/commonsenseqa.json"
+  entity_embeddings: "data/commonsenseqa/entity_embeddings.pkl"
+  output: "output/commonsenseqa/results.csv"

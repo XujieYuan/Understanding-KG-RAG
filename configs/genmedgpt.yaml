@@ -1,0 +1,21 @@
+dataset: genmedgpt
+
+neo4j:
+  uri: "bolt://localhost:7687"       # Replace with your Neo4j URI
+  username: "neo4j"
+  password: "your_password_here"
+
+llm:
+  api_base: "http://localhost:8000/v1"   # vLLM or Ollama endpoint
+  api_key: "EMPTY"
+
+bert:
+  model_path: "bert-base-uncased"        # HuggingFace name or local path
+
+embedding:
+  model_path: "distiluse-base-multilingual-cased-v1"  # HuggingFace name or local path
+
+data:
+  input: "data/GenMedGPT-5K/genmedgpt-5k.json"
+  entity_embeddings: "data/GenMedGPT-5K/entity_embeddings.pkl"
+  output: "output/genmedgpt/results.csv"

@@ -1,13 +1,15 @@
+import argparse
 import csv
-from llama_cpp import Llama
+import sys
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from llama_cpp import Llama
 
 
-def chat_zhllm(prompt):
-    llm = Llama(
-        model_path="../Qwen2-72B",
+def build_llm(model_path):
+    return Llama(
+        model_path=model_path,
         n_gpu_layers=200,
         n_batch=512,
         n_ctx=4096,
@@ -15,19 +17,22 @@ def chat_zhllm(prompt):
         repeat_penalty=1.0,
         verbose=False,
     )
+
+
+def chat_llm(llm, prompt):
     completion = llm.create_chat_completion(
-      messages=[
-          {"role": "system", "content": "你是一位专门评估医疗问答质量的AI助手。"},
-          {"role": "user", "content": prompt}
-      ]
+        messages=[
+            {"role": "system", "content": "你是一位专门评估医疗问答质量的AI助手。"},
+            {"role": "user", "content": prompt}
+        ]
     )
     response = completion["choices"][0]["message"]["content"]
     print("chinese llm response:", response)
     return response
 
 
-def create_evaluation_prompt_chinese(question, answer, method):
-    prompt = f"""请你评估一个针对医疗问题的回答（摘要）。你需要从四个维度对这个回答进行评分。请仔细阅读并理解以下指示。
+def create_evaluation_prompt(question, answer, method):
+    return f"""请你评估一个针对医疗问题的回答（摘要）。你需要从四个维度对这个回答进行评分。请仔细阅读并理解以下指示。
 
                 问题：{question}
 
@@ -52,7 +57,6 @@ def create_evaluation_prompt_chinese(question, answer, method):
 
                 只需提供分数，无需额外解释。
                 """
-    return prompt
 
 
 def parse_scores(evaluation_text):
@@ -64,107 +68,89 @@ def parse_scores(evaluation_text):
         '准确性': 'Correctness',
         '实用性': 'Empowerment'
     }
-    
+
     for line in lines:
         if '：' in line:
-            key, value = line.split('：')
+            key, value = line.split('：', 1)
             if key.strip() in score_mapping:
-                scores[score_mapping[key.strip()]] = float(value.strip())
+                try:
+                    scores[score_mapping[key.strip()]] = float(value.strip())
+                except ValueError:
+                    pass
     return scores
-
-def evaluate_answers():
-    # # explaincpe
-    input_file = './output/explainpe/output_all_7b.csv'
-    output_file = './output/explainpe/g_eval_results.csv'
-    methods = [
-        'Subgraph+cot+rerank_summary', 'Subgraph+cot_summary', 
-        'Subgraph+tot_summary', 'Subgraph+mindmap_summary', 
-        'Subgraph_noPrompt', 'path+cot_summary', 'path+tot_summary', 
-        'path+mindmap_summary', 'path_noPrompt', 'facts+cot_summary', 
-        'facts+tot_summary', 'facts+mindmap_summary', 'facts_noPrompt'
-    ]
-
-    with open(input_file, 'r', newline='', encoding='utf-8') as infile, \
-         open(output_file, 'w', newline='', encoding='utf-8') as outfile:
-        
-        reader = csv.DictReader(infile)
-        new_fields = []
-        for method in methods:
-            for metric in ['Context_Relevance', 'Comprehensiveness', 'Correctness', 'Empowerment']:
-                new_fields.append(f'{method}_{metric}')
-        
-        fieldnames = reader.fieldnames + new_fields
-        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
-        writer.writeheader()
-
-        for row in tqdm(reader, desc="正在评估"):
-            question = row['Question']
-            
-            for method in methods:
-                if method in row and row[method].strip():  
-                    scores = parse_scores(chat_zhllm(create_evaluation_prompt_chinese(question, row[method], method)))
-                    
-                    for metric, score in scores.items():
-                        metric_key = f'{method}_{metric.replace(" ", "_")}'
-                        row[metric_key] = score
-
-            writer.writerow(row)
 
 
 def calculate_stats(scores):
-    mean = np.mean(scores) * 20 
+    mean = np.mean(scores) * 20
     std = np.std(scores) * 20
     return f"{mean:.2f}% ± {std:.2f}%"
 
-def analyze_results(input_file):
-    df = pd.read_csv(input_file)
-    
-    methods = [
-        'Subgraph+cot+rerank_summary', 'Subgraph+cot_summary', 
-        'Subgraph+tot_summary', 'Subgraph+mindmap_summary', 
-        'Subgraph_noPrompt', 'path+cot_summary', 'path+tot_summary', 
-        'path+mindmap_summary', 'path_noPrompt', 'facts+cot_summary', 
-        'facts+tot_summary', 'facts+mindmap_summary', 'facts_noPrompt'
-    ]
-
-    metrics = ['Context_Relevance', 'Comprehensiveness', 'Correctness', 'Empowerment']
-    
-    results = []
-    
-    for method in methods:
-        method_results = [method]
-        for metric in metrics:
-            column = f"{method}_{metric}"
-            scores = df[column].dropna().values
-            method_results.append(calculate_stats(scores))
-        results.append(method_results)
-    
-    headers = ["方法", "上下文相关性", "全面性", "准确性", "实用性"]
-    
-    table = [headers] + results
-    
-    col_widths = [max(len(str(row[i])) for row in table) for i in range(len(headers))]
-    
-    # 打印表格
-    print_table(table, col_widths)
 
 def print_table(table, col_widths):
     header_str = "| " + " | ".join(f"{'':<{w}}" for w in col_widths) + " |"
     print("-" * len(header_str))
-    
     header = table[0]
     header_str = "| " + " | ".join(f"{h:<{w}}" for h, w in zip(header, col_widths)) + " |"
     print(header_str)
     print("-" * len(header_str))
-    
     for row in table[1:]:
         row_str = "| " + " | ".join(f"{str(cell):<{w}}" for cell, w in zip(row, col_widths)) + " |"
         print(row_str)
-    
     print("-" * len(header_str))
 
-if __name__ == "__main__":
-    evaluate_answers()
 
-    input_file = './output/explainpe/g_eval_results.csv'
-    analyze_results(input_file)
+def main():
+    parser = argparse.ArgumentParser(description="G-Eval (Chinese) for pilot output columns")
+    parser.add_argument('--input', required=True, help='Path to results CSV file')
+    parser.add_argument('--output', required=True, help='Path to output CSV file with G-Eval scores')
+    parser.add_argument('--methods', nargs='+', required=True,
+                        help='Column names (headers) of methods to evaluate')
+    parser.add_argument('--question-col', default='Question',
+                        help='Column name for questions (default: Question)')
+    parser.add_argument('--model', required=True, help='Path to GGUF model file for evaluation')
+    args = parser.parse_args()
+
+    llm = build_llm(args.model)
+    csv.field_size_limit(sys.maxsize)
+    metrics = ['Context_Relevance', 'Comprehensiveness', 'Correctness', 'Empowerment']
+
+    with open(args.input, 'r', newline='', encoding='utf-8') as infile, \
+         open(args.output, 'w', newline='', encoding='utf-8') as outfile:
+
+        reader = csv.DictReader(infile)
+        new_fields = [f'{m}_{metric}' for m in args.methods for metric in metrics]
+        fieldnames = list(reader.fieldnames) + new_fields
+        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for row in tqdm(reader, desc="正在评估"):
+            question = row[args.question_col]
+            for method in args.methods:
+                if method in row and row[method].strip():
+                    scores = parse_scores(chat_llm(llm, create_evaluation_prompt(question, row[method], method)))
+                    for metric, val in scores.items():
+                        row[f'{method}_{metric.replace(" ", "_")}'] = val
+            writer.writerow(row)
+
+    # Analyze results
+    df = pd.read_csv(args.output)
+    results = []
+    for method in args.methods:
+        method_results = [method]
+        for metric in metrics:
+            column = f"{method}_{metric}"
+            if column in df.columns:
+                vals = df[column].dropna().values
+                method_results.append(calculate_stats(vals) if len(vals) > 0 else "N/A")
+            else:
+                method_results.append("N/A")
+        results.append(method_results)
+
+    headers = ["方法", "上下文相关性", "全面性", "准确性", "实用性"]
+    table = [headers] + results
+    col_widths = [max(len(str(row[i])) for row in table) for i in range(len(headers))]
+    print_table(table, col_widths)
+
+
+if __name__ == "__main__":
+    main()
