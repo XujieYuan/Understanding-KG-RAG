@@ -1,1 +1,28 @@
 .DS_Store
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Local outputs
+output/
+logs/
+tmp/
+
+# Generated artifacts
+data/**/entity_embeddings.pkl
+data/**/keyword_embeddings.pkl
+data/**/word2vec.model
+
+# Local environment files
+.env
+.venv/
+venv/
+
+# macOS and editor noise
+.idea/
+.vscode/

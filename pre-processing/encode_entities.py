@@ -1,6 +1,5 @@
 import argparse
 import pickle
-from sentence_transformers import SentenceTransformer
 
 
 def load_entities(file_path):
@@ -41,6 +40,8 @@ def main():
     parser.add_argument('--model', default='distiluse-base-multilingual-cased-v1',
                         help='SentenceTransformer model name or local path')
     args = parser.parse_args()
+
+    from sentence_transformers import SentenceTransformer
 
     model = SentenceTransformer(args.model)
     entities = load_entities(args.kg)

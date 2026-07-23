@@ -12,7 +12,8 @@ def main():
     config_path = os.path.abspath(args.config)
     pilot_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'KG-RAG', 'Pilot.py')
 
-    subprocess.run([sys.executable, pilot_path, '--config', config_path], check=True)
+    completed = subprocess.run([sys.executable, pilot_path, '--config', config_path], check=False)
+    sys.exit(completed.returncode)
 
 
 if __name__ == '__main__':

@@ -1,21 +1,21 @@
 dataset: cmb_exam
 
 neo4j:
-  uri: "bolt://localhost:7687"       # Replace with your Neo4j URI
+  uri: "bolt://localhost:7687"
   username: "neo4j"
-  password: "your_password_here"
+  password: "replace-me"
 
 llm:
-  api_base: "http://localhost:8000/v1"   # vLLM or Ollama endpoint
-  api_key: "EMPTY"
+  api_base: "http://localhost:8000/v1"
+  api_key: "replace-me"
 
 bert:
-  model_path: "bert-base-chinese"        # HuggingFace name or local path
+  model_path: "bert-base-chinese"
 
 embedding:
-  model_path: "distiluse-base-multilingual-cased-v1"  # HuggingFace name or local path
+  model_path: "distiluse-base-multilingual-cased-v1"
 
 data:
-  input: "data/CMB-Exam/Gynecology/cmb_exam.json"   # choose the exam category subfolder
-  entity_embeddings: "data/CMB-Exam/Gynecology/entity_embeddings.pkl"
+  input: "data/CMB-Exam/Medical_Practitioner/Medical_Practitioner.json"
+  entity_embeddings: "data/CMB-Exam/Medical_Practitioner/entity_embeddings.pkl"  # Generate with pre-processing/encode_entities.py
   output: "output/cmb_exam/results.csv"

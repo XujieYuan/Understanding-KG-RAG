@@ -1,21 +1,21 @@
 dataset: commonsenseqa
 
 neo4j:
-  uri: "bolt://localhost:7687"       # Replace with your Neo4j URI
+  uri: "bolt://localhost:7687"
   username: "neo4j"
-  password: "your_password_here"
+  password: "replace-me"
 
 llm:
-  api_base: "http://localhost:8000/v1"   # vLLM or Ollama endpoint
-  api_key: "EMPTY"
+  api_base: "http://localhost:8000/v1"
+  api_key: "replace-me"
 
 bert:
-  model_path: "bert-base-uncased"        # HuggingFace name or local path
+  model_path: "bert-base-uncased"
 
 embedding:
-  model_path: "distiluse-base-multilingual-cased-v1"  # HuggingFace name or local path
+  model_path: "distiluse-base-multilingual-cased-v1"
 
 data:
   input: "data/commonsenseqa/commonsenseqa.json"
-  entity_embeddings: "data/commonsenseqa/entity_embeddings.pkl"
+  entity_embeddings: "data/commonsenseqa/entity_embeddings.pkl"  # Generate with pre-processing/encode_entities.py
   output: "output/commonsenseqa/results.csv"

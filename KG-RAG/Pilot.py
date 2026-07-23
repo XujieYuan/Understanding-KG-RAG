@@ -1,31 +1,28 @@
 import time
 import heapq
-from langchain.chat_models import ChatOpenAI
-from langchain import PromptTemplate
-from langchain.prompts.chat import (
-    ChatPromptTemplate,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-)
-from langchain.schema import (
-    AIMessage,
-    HumanMessage,
-    SystemMessage,
-)
-import numpy as np
 import re
-from neo4j import GraphDatabase
-from neo4j.exceptions import ServiceUnavailable
-import pandas as pd
+import os
 from typing import List, Tuple
 import pickle
 import json
 import csv
-from transformers import BertTokenizer, BertModel
-import torch
-from sentence_transformers import SentenceTransformer
 
 # Module-level globals — initialized in __main__ or via external init
+np = None
+PromptTemplate = None
+ChatPromptTemplate = None
+SystemMessagePromptTemplate = None
+HumanMessagePromptTemplate = None
+AIMessage = None
+HumanMessage = None
+SystemMessage = None
+ChatOpenAI = None
+GraphDatabase = None
+ServiceUnavailable = None
+torch = None
+BertTokenizer = None
+BertModel = None
+SentenceTransformer = None
 sentence_model = None
 chat = None
 bert_tokenizer = None
@@ -620,10 +617,71 @@ def extract_output_summary(output, pattern):
         return None
 
 
+def get_required_config(cfg, path):
+    current = cfg
+    walked = []
+    for key in path:
+        walked.append(key)
+        if not isinstance(current, dict) or key not in current:
+            dotted = ".".join(walked)
+            raise ValueError(f"Missing required config field: {dotted}")
+        current = current[key]
+    return current
+
+
+def resolve_repo_path(repo_root, path_value):
+    if not path_value:
+        raise ValueError("Config path value must not be empty.")
+    if os.path.isabs(path_value):
+        return path_value
+    return os.path.join(repo_root, path_value)
+
+
+def validate_config(cfg, repo_root, supported_datasets):
+    dataset = get_required_config(cfg, ["dataset"])
+    if dataset not in supported_datasets:
+        supported = ", ".join(sorted(supported_datasets))
+        raise ValueError(f"Unsupported dataset '{dataset}'. Supported values: {supported}")
+
+    get_required_config(cfg, ["neo4j", "uri"])
+    get_required_config(cfg, ["neo4j", "username"])
+    get_required_config(cfg, ["neo4j", "password"])
+    get_required_config(cfg, ["llm", "api_base"])
+    get_required_config(cfg, ["llm", "api_key"])
+    get_required_config(cfg, ["bert", "model_path"])
+    get_required_config(cfg, ["embedding", "model_path"])
+
+    input_path = resolve_repo_path(repo_root, get_required_config(cfg, ["data", "input"]))
+    entity_embeddings_path = resolve_repo_path(repo_root, get_required_config(cfg, ["data", "entity_embeddings"]))
+    output_path = resolve_repo_path(repo_root, get_required_config(cfg, ["data", "output"]))
+
+    if not os.path.isfile(input_path):
+        raise FileNotFoundError(
+            f"Input dataset file not found: {input_path}"
+        )
+
+    if not os.path.isfile(entity_embeddings_path):
+        raise FileNotFoundError(
+            "Entity embedding file not found: "
+            f"{entity_embeddings_path}. Generate it first with "
+            "pre-processing/encode_entities.py."
+        )
+
+    output_dir = os.path.dirname(os.path.abspath(output_path))
+    if not output_dir:
+        raise ValueError("Output path must include a parent directory.")
+
+    return {
+        "dataset": dataset,
+        "input_path": input_path,
+        "entity_embeddings_path": entity_embeddings_path,
+        "output_path": output_path,
+    }
+
+
 if __name__ == "__main__":
     import argparse
     import yaml
-    import os
     import sys
 
     parser = argparse.ArgumentParser(description="Pilot KG-RAG pipeline")
@@ -639,7 +697,6 @@ if __name__ == "__main__":
         sys.path.insert(0, repo_root)
     import prompts as prompts_module
 
-    dataset = cfg['dataset']
     DATASET_PROMPT_MAP = {
         'genmedgpt': prompts_module.MEDICAL_DIAGNOSIS,
         'cmcqa': prompts_module.MEDICAL_DIAGNOSIS,
@@ -647,7 +704,24 @@ if __name__ == "__main__":
         'explainpe': prompts_module.MEDICAL_EXAM,
         'cmb_exam': prompts_module.MEDICAL_EXAM,
     }
+    resolved = validate_config(cfg, repo_root, DATASET_PROMPT_MAP.keys())
+    dataset = resolved["dataset"]
     prompts = DATASET_PROMPT_MAP.get(dataset, prompts_module.MEDICAL_DIAGNOSIS)
+
+    import numpy as np
+    import torch
+    from langchain import PromptTemplate
+    from langchain.chat_models import ChatOpenAI
+    from langchain.prompts.chat import (
+        ChatPromptTemplate,
+        HumanMessagePromptTemplate,
+        SystemMessagePromptTemplate,
+    )
+    from langchain.schema import AIMessage, HumanMessage, SystemMessage
+    from neo4j import GraphDatabase
+    from neo4j.exceptions import ServiceUnavailable
+    from sentence_transformers import SentenceTransformer
+    from transformers import BertModel, BertTokenizer
 
     # Initialize Neo4j
     uri = cfg['neo4j']['uri']
@@ -669,7 +743,7 @@ if __name__ == "__main__":
         openai_api_base=cfg['llm']['api_base'],
     )
 
-    output_path = cfg['data']['output']
+    output_path = resolved["output_path"]
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
     with open(output_path, 'w', newline='') as f4:
@@ -691,12 +765,12 @@ if __name__ == "__main__":
             'facts_noPrompt',
         ])
 
-    with open(cfg['data']['entity_embeddings'], 'rb') as f1:
+    with open(resolved["entity_embeddings_path"], 'rb') as f1:
         entity_embeddings = pickle.load(f1)
 
     output_re = prompts.get('output_pattern', r"Output 1:(.*?)Output 2:")
 
-    with open(cfg['data']['input'], 'r') as f:
+    with open(resolved["input_path"], 'r', encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             if not line:
