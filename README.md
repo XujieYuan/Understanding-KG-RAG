@@ -13,13 +13,6 @@ It is intentionally scoped to the pilot KG-RAG study only. It does not include t
 - Pre-processing scripts for building the Neo4j graph and entity embeddings
 - Optional evaluation scripts under `evaluation/`
 
-## What Is Not Included
-
-- MetaKGRAG-specific code paths
-- Historical experiment outputs
-- Generated embedding files such as `entity_embeddings.pkl`
-- Local cache files such as `.DS_Store` and `__pycache__`
-
 ## Repository Layout
 
 ```text
@@ -181,4 +174,18 @@ The pilot runner recreates the target CSV at the start of each run. Change `data
 
 ## Citation
 
-If you use this repository, cite the corresponding pilot paper from your thesis materials.
+If you find this repository useful, please cite our paper:
+
+```bibtex
+@inproceedings{yuan2026pilot,
+  title     = {A Pilot Empirical Study on When and How to Use Knowledge Graphs as Retrieval Augmented Generation},
+  author    = {Yuan, Xujie and Liu, Yongxu and Di, Shimin and Wu, Shiwen and Zheng, Libin and Meng, Rui and Chen, Lei and Zhou, Xiaofang and Yin, Jian},
+  booktitle = {Database Systems for Advanced Applications},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {16538},
+  pages     = {471--488},
+  year      = {2026},
+  publisher = {Springer Nature Singapore},
+  doi       = {10.1007/978-981-92-0372-7_29}
+}
+```
